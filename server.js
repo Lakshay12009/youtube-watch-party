@@ -310,6 +310,7 @@ const HTML_PAGE = `<!doctype html>
   .btn.danger { background: #ff4d4f; color: white; }
   .btn.tiny { padding: 4px 8px; font-size: 12px; }
   .divider { text-align: center; color: #6b6e80; font-size: 13px; margin: 20px 0; }
+  .invite-note { background: #26264a; color: #c9c9f5; font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; }
   .error { color: #ff6b6b; margin-top: 12px; font-size: 14px; }
   .room-page { max-width: 1200px; margin: 0 auto; }
   .room-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
@@ -353,9 +354,10 @@ const HTML_PAGE = `<!doctype html>
       <label class="field"><span>Your name</span>
         <input id="name-input" placeholder="e.g. Alex" maxlength="24" />
       </label>
+      <p class="invite-note hidden" id="invite-note">You're joining a shared room — just enter your name.</p>
       <button class="btn primary" id="create-btn">Create a new room</button>
-      <div class="divider">or join an existing room</div>
-      <label class="field"><span>Room code</span>
+      <div class="divider" id="join-divider">or join an existing room</div>
+      <label class="field" id="room-code-field"><span>Room code</span>
         <input id="room-code-input" placeholder="e.g. AB12CD" maxlength="8" />
       </label>
       <button class="btn secondary" id="join-btn">Join room</button>
@@ -466,6 +468,23 @@ const HTML_PAGE = `<!doctype html>
     var noControlHint = document.getElementById('no-control-hint');
 
     nameInput.value = username;
+
+    // ---- detect an invite link like /room/AB12CD and simplify the home screen ----
+    var inviteCodeFromUrl = null;
+    (function detectInvite() {
+      var match = window.location.pathname.match(/^\/room\/([A-Za-z0-9]+)$/);
+      if (match) inviteCodeFromUrl = match[1].toUpperCase();
+    })();
+    if (inviteCodeFromUrl) {
+      roomCodeInput.value = inviteCodeFromUrl;
+      document.getElementById('create-btn').classList.add('hidden');
+      document.getElementById('join-divider').classList.add('hidden');
+      document.getElementById('room-code-field').classList.add('hidden');
+      var inviteNote = document.getElementById('invite-note');
+      inviteNote.textContent = "You're joining room " + inviteCodeFromUrl + ' — just enter your name.';
+      inviteNote.classList.remove('hidden');
+      document.getElementById('join-btn').textContent = 'Join room ' + inviteCodeFromUrl;
+    }
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -671,14 +690,13 @@ const HTML_PAGE = `<!doctype html>
       showToast('Room link copied!');
     };
 
-    // ---- auto-join if URL already has a room code (e.g. shared link, or refresh) ----
+    // ---- auto-join if URL already has a room code AND we already know the user's name
+    //      (e.g. they've used this browser before, or this is a page refresh inside a room) ----
     (function autoJoinFromUrl() {
-      var match = window.location.pathname.match(/^\\/room\\/([A-Za-z0-9]+)$/);
-      if (!match) return;
-      var codeFromUrl = match[1].toUpperCase();
+      if (!inviteCodeFromUrl) return;
       username = getUsername();
-      if (!username) { return; } // no stored name yet - user must go through home screen once
-      socket.emit('join_room', { roomId: codeFromUrl, username: username, userId: userId }, function (res) {
+      if (!username) { return; } // no stored name yet - let them type it on the simplified home screen above
+      socket.emit('join_room', { roomId: inviteCodeFromUrl, username: username, userId: userId }, function (res) {
         if (!res || !res.ok) { window.location.href = '/'; return; }
         role = res.role;
         (res.chatHistory || []).forEach(appendChatMessage);
