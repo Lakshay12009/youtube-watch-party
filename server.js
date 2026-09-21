@@ -472,7 +472,7 @@ const HTML_PAGE = `<!doctype html>
     // ---- detect an invite link like /room/AB12CD and simplify the home screen ----
     var inviteCodeFromUrl = null;
     (function detectInvite() {
-      var match = window.location.pathname.match(/^\/room\/([A-Za-z0-9]+)$/);
+      var match = window.location.pathname.match(/^\\/room\\/([A-Za-z0-9]+)$/);
       if (match) inviteCodeFromUrl = match[1].toUpperCase();
     })();
     if (inviteCodeFromUrl) {
