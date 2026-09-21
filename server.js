@@ -325,7 +325,6 @@ const HTML_PAGE = `<!doctype html>
   .player-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: black; border-radius: 12px; overflow: hidden; }
   .player-wrapper > div, .player-wrapper iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
   .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .controls .seek-input { width: 120px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
   .controls .video-input { flex: 1; min-width: 200px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
   .hint { color: #9a9db0; font-size: 13px; margin-top: 12px; }
   .side-col { display: flex; flex-direction: column; gap: 16px; }
@@ -384,10 +383,10 @@ const HTML_PAGE = `<!doctype html>
         <div class="player-wrapper"><div id="yt-player"></div></div>
 
         <div class="controls" id="playback-controls">
-          <button class="btn" id="play-btn">Play</button>
-          <button class="btn" id="pause-btn">Pause</button>
-          <input class="seek-input" id="seek-input" placeholder="Seek to (sec)" />
-          <button class="btn" id="seek-btn">Seek</button>
+          <button class="btn" id="rewind-btn">⏪ 10s</button>
+          <button class="btn" id="play-btn">▶ Play</button>
+          <button class="btn" id="pause-btn">⏸ Pause</button>
+          <button class="btn" id="forward-btn">10s ⏩</button>
         </div>
         <p class="hint hidden" id="no-control-hint">Only the Host or Moderator can control playback.</p>
 
@@ -661,9 +660,14 @@ const HTML_PAGE = `<!doctype html>
     // ---- room screen actions ----
     document.getElementById('play-btn').onclick = function () { socket.emit('play'); };
     document.getElementById('pause-btn').onclick = function () { socket.emit('pause', { currentTime: ytPlayer ? ytPlayer.getCurrentTime() : 0 }); };
-    document.getElementById('seek-btn').onclick = function () {
-      var t = parseFloat(document.getElementById('seek-input').value);
-      if (!isNaN(t)) socket.emit('seek', { time: t });
+    document.getElementById('rewind-btn').onclick = function () {
+      var current = ytPlayer ? ytPlayer.getCurrentTime() : 0;
+      var target = Math.max(0, current - 10);
+      socket.emit('seek', { time: target });
+    };
+    document.getElementById('forward-btn').onclick = function () {
+      var current = ytPlayer ? ytPlayer.getCurrentTime() : 0;
+      socket.emit('seek', { time: current + 10 });
     };
     document.getElementById('change-video-btn').onclick = function () {
       var input = document.getElementById('video-input');
