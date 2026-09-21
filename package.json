@@ -1,0 +1,17 @@
+{
+  "name": "watch-party-single-file",
+  "version": "1.0.0",
+  "description": "YouTube Watch Party - single file Express + Socket.IO app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
