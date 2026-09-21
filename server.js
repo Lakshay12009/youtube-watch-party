@@ -322,7 +322,7 @@ const HTML_PAGE = `<!doctype html>
   .room-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; }
   @media (max-width: 900px) { .room-layout { grid-template-columns: 1fr; } }
   .player-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: black; border-radius: 12px; overflow: hidden; }
-  .player-wrapper > div { position: absolute; inset: 0; }
+  .player-wrapper > div, .player-wrapper iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
   .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .controls .seek-input { width: 120px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
   .controls .video-input { flex: 1; min-width: 200px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
