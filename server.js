@@ -474,18 +474,22 @@ const HTML_PAGE = `<!doctype html>
       if (!audioCtx) return;
       try {
         var now = audioCtx.currentTime;
-        var osc = audioCtx.createOscillator();
-        var gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, now);       // short high "ding"
-        osc.frequency.setValueAtTime(660, now + 0.09); // then a lower note
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.26);
+        // three quick louder beeps so it cuts through video audio
+        var notes = [880, 1046, 880];
+        notes.forEach(function (freq, i) {
+          var start = now + i * 0.14;
+          var osc = audioCtx.createOscillator();
+          var gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, start);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.5, start + 0.015); // much louder peak
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(start);
+          osc.stop(start + 0.14);
+        });
       } catch (e) { /* no-op */ }
     }
     // fallback: unlock audio on the very first click anywhere on the page,
@@ -531,7 +535,21 @@ const HTML_PAGE = `<!doctype html>
     function showToast(msg) {
       toastEl.textContent = msg;
       toastEl.classList.remove('hidden');
-      setTimeout(function () { toastEl.classList.add('hidden'); }, 3000);
+      setTimeout(function () { toastEl.classList.add('hidden'); }, 4000);
+    }
+
+    var originalTitle = document.title;
+    var titleFlashTimer = null;
+    function flashTabTitle() {
+      if (!document.hidden) return; // only bother if they've switched away from this tab
+      document.title = '💬 New message — ' + originalTitle;
+      if (titleFlashTimer) clearTimeout(titleFlashTimer);
+      document.addEventListener('visibilitychange', function restoreTitle() {
+        if (!document.hidden) {
+          document.title = originalTitle;
+          document.removeEventListener('visibilitychange', restoreTitle);
+        }
+      });
     }
 
     // ---- YouTube IFrame API ----
@@ -551,6 +569,20 @@ const HTML_PAGE = `<!doctype html>
             isMutedLocal = true;
             updateMuteButton();
             if (pendingVideoId) { ytPlayer.cueVideoById(pendingVideoId); pendingVideoId = null; }
+          },
+          // YouTube shows a "watch more videos" suggestions grid once a video
+          // truly finishes (its ENDED state) - this can't be turned off via any
+          // parameter, so instead we catch it right as it happens and pause a
+          // fraction of a second before the true end, which stops that grid
+          // from ever appearing.
+          onStateChange: function (e) {
+            if (e.data === YT.PlayerState.ENDED) {
+              try {
+                var dur = ytPlayer.getDuration();
+                if (dur && dur > 1) ytPlayer.seekTo(dur - 0.5, true);
+                ytPlayer.pauseVideo();
+              } catch (err) { /* no-op */ }
+            }
           }
         }
       });
@@ -684,7 +716,11 @@ const HTML_PAGE = `<!doctype html>
     });
     socket.on('chat_message', function (msg) {
       appendChatMessage(msg);
-      if (msg.userId !== userId) playNotificationSound();
+      if (msg.userId !== userId) {
+        playNotificationSound();
+        showToast('💬 ' + msg.username + ': ' + (msg.text.length > 40 ? msg.text.slice(0, 40) + '…' : msg.text));
+        flashTabTitle();
+      }
     });
     socket.on('error_message', function (data) { showToast(data.message); });
 
