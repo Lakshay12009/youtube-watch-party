@@ -324,7 +324,7 @@ const HTML_PAGE = `<!doctype html>
   @media (max-width: 900px) { .room-layout { grid-template-columns: 1fr; } }
   .player-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: black; border-radius: 12px; overflow: hidden; }
   .player-wrapper > div, .player-wrapper iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .player-wrapper.locked iframe { pointer-events: none; }
+  .player-wrapper iframe { pointer-events: none; }
   .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .controls .video-input { flex: 1; min-width: 200px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
   .hint { color: #9a9db0; font-size: 13px; margin-top: 12px; }
@@ -455,6 +455,10 @@ const HTML_PAGE = `<!doctype html>
     var ytPlayer = null;
     var ytReady = false;
     var pendingVideoId = null;
+    var isMutedLocal = true; // source of truth for the mute button's label - the
+                              // YT iframe API is asynchronous, so asking the
+                              // player "are you muted?" right after calling
+                              // mute()/unMute() can still return the OLD state.
 
     // ---- DOM refs ----
     var homeScreen = document.getElementById('home-screen');
@@ -511,6 +515,7 @@ const HTML_PAGE = `<!doctype html>
           onReady: function () {
             ytReady = true;
             ytPlayer.mute();
+            isMutedLocal = true;
             updateMuteButton();
             if (pendingVideoId) { ytPlayer.cueVideoById(pendingVideoId); pendingVideoId = null; }
           }
@@ -617,9 +622,9 @@ const HTML_PAGE = `<!doctype html>
       playbackControls.classList.toggle('hidden', !canControl);
       changeVideoControls.classList.toggle('hidden', !canControl);
       noControlHint.classList.toggle('hidden', canControl);
-      // extra safety: block clicks landing on the video itself for viewers,
-      // since controls:0 already hides YouTube's own play/pause/seek bar
-      document.querySelector('.player-wrapper').classList.toggle('locked', !canControl);
+      // playback area itself is always click-blocked (see CSS) - all control goes
+      // through the buttons below, for everyone, so nobody can hit YouTube's
+      // own "more videos" suggestions and desync themselves
     }
 
     function enterRoom(roomId) {
@@ -681,13 +686,13 @@ const HTML_PAGE = `<!doctype html>
     // ---- room screen actions ----
     function updateMuteButton() {
       var btn = document.getElementById('mute-btn');
-      if (!btn || !ytPlayer) return;
-      var muted = ytPlayer.isMuted();
-      btn.textContent = muted ? '🔇 Unmute' : '🔊 Mute';
+      if (!btn) return;
+      btn.textContent = isMutedLocal ? '🔇 Unmute' : '🔊 Mute';
     }
     document.getElementById('mute-btn').onclick = function () {
       if (!ytPlayer) return;
-      if (ytPlayer.isMuted()) ytPlayer.unMute(); else ytPlayer.mute();
+      isMutedLocal = !isMutedLocal;
+      if (isMutedLocal) ytPlayer.mute(); else ytPlayer.unMute();
       updateMuteButton();
     };
     document.getElementById('play-btn').onclick = function () { socket.emit('play'); };
