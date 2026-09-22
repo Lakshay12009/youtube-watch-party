@@ -459,6 +459,39 @@ const HTML_PAGE = `<!doctype html>
                               // YT iframe API is asynchronous, so asking the
                               // player "are you muted?" right after calling
                               // mute()/unMute() can still return the OLD state.
+    var audioCtx = null; // lazily created on the first user click (browsers block
+                          // audio before any user gesture on the page)
+
+    function unlockAudio() {
+      if (audioCtx) return;
+      try {
+        var AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtor) audioCtx = new AudioCtor();
+      } catch (e) { /* no-op - notification sound just won't play */ }
+    }
+
+    function playNotificationSound() {
+      if (!audioCtx) return;
+      try {
+        var now = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);       // short high "ding"
+        osc.frequency.setValueAtTime(660, now + 0.09); // then a lower note
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.26);
+      } catch (e) { /* no-op */ }
+    }
+    // fallback: unlock audio on the very first click anywhere on the page,
+    // in case someone lands straight inside a room via an invite link
+    // (auto-join skips the Create/Join button clicks above)
+    document.addEventListener('click', unlockAudio, { once: true });
 
     // ---- DOM refs ----
     var homeScreen = document.getElementById('home-screen');
@@ -510,7 +543,7 @@ const HTML_PAGE = `<!doctype html>
         // mute: 1 -> start muted so the browser allows autoplay when a sync_state
         //   broadcast arrives without a fresh click from this viewer; they can
         //   unmute locally at any time with the button below (personal, not synced).
-        playerVars: { playsinline: 1, rel: 0, controls: 0, disablekb: 1, mute: 1 },
+        playerVars: { playsinline: 1, rel: 0, controls: 0, disablekb: 1, mute: 1, modestbranding: 1, fs: 0, iv_load_policy: 3 },
         events: {
           onReady: function () {
             ytReady = true;
@@ -649,11 +682,15 @@ const HTML_PAGE = `<!doctype html>
       showToast('You were removed from the room by the host.');
       setTimeout(function () { window.location.href = '/'; }, 1500);
     });
-    socket.on('chat_message', function (msg) { appendChatMessage(msg); });
+    socket.on('chat_message', function (msg) {
+      appendChatMessage(msg);
+      if (msg.userId !== userId) playNotificationSound();
+    });
     socket.on('error_message', function (data) { showToast(data.message); });
 
     // ---- home screen actions ----
     document.getElementById('create-btn').onclick = function () {
+      unlockAudio();
       username = nameInput.value.trim();
       if (!username) { homeError.textContent = 'Please enter a display name.'; homeError.classList.remove('hidden'); return; }
       setUsername(username);
@@ -667,6 +704,7 @@ const HTML_PAGE = `<!doctype html>
     };
 
     document.getElementById('join-btn').onclick = function () {
+      unlockAudio();
       username = nameInput.value.trim();
       var code = roomCodeInput.value.trim().toUpperCase();
       if (!username) { homeError.textContent = 'Please enter a display name.'; homeError.classList.remove('hidden'); return; }
