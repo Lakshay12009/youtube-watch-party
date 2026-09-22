@@ -139,6 +139,30 @@ class RoomManager {
 }
 
 const roomManager = new RoomManager(io);
+// If a socket disconnects (e.g. a mobile browser backgrounded, briefly losing
+// the WebSocket), we don't remove them from the room immediately - we give
+// them a short grace period to reconnect and resume exactly where they left
+// off (same role, same room). Only if they don't come back in time do we
+// treat it as an actual "left the room".
+const RECONNECT_GRACE_MS = 15000;
+const pendingRemovals = new Map(); // key: roomId+':'+userId -> setTimeout handle
+
+function removeParticipantNow(roomId, userId) {
+  const room = roomManager.getRoom(roomId);
+  if (!room) return;
+  const self = room.getParticipant(userId);
+  if (!self) return;
+
+  room.removeParticipant(userId);
+
+  if (self.role === ROLES.HOST && !room.isEmpty()) {
+    const remaining = Array.from(room.participants.values()).sort((a, b) => a.joinedAt - b.joinedAt);
+    if (remaining[0]) room.transferHost(remaining[0].userId);
+  }
+
+  room.broadcast('user_left', { username: self.username, userId: self.userId, participants: room.listParticipants() });
+  roomManager.deleteRoomIfEmpty(roomId);
+}
 
 // ---------------------------------------------------------------------------
 // 4. SOCKET.IO EVENT WIRING
@@ -178,6 +202,11 @@ io.on('connection', (socket) => {
     if (!room) return ack && ack({ ok: false, error: 'Room not found' });
     if (!username || !uid) return ack && ack({ ok: false, error: 'username and userId required' });
 
+    // cancel any pending removal for this user in this room - e.g. their phone
+    // briefly backgrounded and they're reconnecting within the grace period
+    const pendingKey = rId + ':' + uid;
+    if (pendingRemovals.has(pendingKey)) { clearTimeout(pendingRemovals.get(pendingKey)); pendingRemovals.delete(pendingKey); }
+
     const existing = room.getParticipant(uid);
     const role = existing ? existing.role : ROLES.PARTICIPANT;
     const participant = new Participant({ socketId: socket.id, userId: uid, username: username, role: role });
@@ -193,27 +222,34 @@ io.on('connection', (socket) => {
     socket.emit('sync_state', Object.assign({}, room.state, { participants: room.listParticipants() }));
   });
 
-  function handleLeaveRoom() {
+  function handleExplicitLeave() {
     const room = getRoom();
     if (!room) return;
-    const self = getSelf(room);
-    if (!self) return;
-
-    room.removeParticipant(userId);
+    const key = roomId + ':' + userId;
+    if (pendingRemovals.has(key)) { clearTimeout(pendingRemovals.get(key)); pendingRemovals.delete(key); }
     socket.leave(roomId);
-
-    if (self.role === ROLES.HOST && !room.isEmpty()) {
-      const remaining = Array.from(room.participants.values()).sort((a, b) => a.joinedAt - b.joinedAt);
-      if (remaining[0]) room.transferHost(remaining[0].userId);
-    }
-
-    room.broadcast('user_left', { username: self.username, userId: self.userId, participants: room.listParticipants() });
-    roomManager.deleteRoomIfEmpty(roomId);
+    removeParticipantNow(roomId, userId);
     roomId = null;
     userId = null;
   }
-  socket.on('leave_room', handleLeaveRoom);
-  socket.on('disconnect', handleLeaveRoom);
+
+  function handleDisconnect() {
+    const room = getRoom();
+    if (!room || !userId) return;
+    // capture into locals - the outer roomId/userId belong to this socket's
+    // closure and won't be touched again after disconnect, but capturing
+    // keeps this timeout callback unambiguous either way
+    const capturedRoomId = roomId;
+    const capturedUserId = userId;
+    const key = capturedRoomId + ':' + capturedUserId;
+    const timeoutHandle = setTimeout(function () {
+      pendingRemovals.delete(key);
+      removeParticipantNow(capturedRoomId, capturedUserId);
+    }, RECONNECT_GRACE_MS);
+    pendingRemovals.set(key, timeoutHandle);
+  }
+  socket.on('leave_room', handleExplicitLeave);
+  socket.on('disconnect', handleDisconnect);
 
   function guardedPlaybackUpdate(eventName, statePatch) {
     const room = getRoom();
@@ -723,6 +759,29 @@ const HTML_PAGE = `<!doctype html>
       }
     });
     socket.on('error_message', function (data) { showToast(data.message); });
+
+    // ---- resync after a real network drop / mobile app backgrounding ----
+    function resyncCurrentRoom() {
+      if (!currentRoomId || !username) return;
+      socket.emit('join_room', { roomId: currentRoomId, username: username, userId: userId }, function (res) {
+        if (!res || !res.ok) return; // room may be gone entirely - nothing more we can do
+        role = res.role;
+        renderParticipants(res.participants || []);
+        updateRoleUI();
+        if (res.state) applySyncState(Object.assign({}, res.state, { participants: res.participants || [] }));
+      });
+    }
+    // Socket.IO auto-reconnects the underlying transport on its own; every
+    // time that happens (e.g. the phone's WebSocket was suspended while the
+    // browser was backgrounded and has now resumed), immediately re-join the
+    // same room so state/role snap back instead of staying stale.
+    socket.on('connect', resyncCurrentRoom);
+    // Also resync whenever the tab/app comes back to the foreground, since on
+    // some mobile browsers the socket can silently stall without ever firing
+    // a full 'disconnect'/'connect' cycle.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) resyncCurrentRoom();
+    });
 
     // ---- home screen actions ----
     document.getElementById('create-btn').onclick = function () {
