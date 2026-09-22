@@ -324,6 +324,7 @@ const HTML_PAGE = `<!doctype html>
   @media (max-width: 900px) { .room-layout { grid-template-columns: 1fr; } }
   .player-wrapper { position: relative; width: 100%; padding-top: 56.25%; background: black; border-radius: 12px; overflow: hidden; }
   .player-wrapper > div, .player-wrapper iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .player-wrapper.locked iframe { pointer-events: none; }
   .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .controls .video-input { flex: 1; min-width: 200px; padding: 8px; border-radius: 8px; border: 1px solid #2e3244; background: #10121b; color: #eaeaf0; }
   .hint { color: #9a9db0; font-size: 13px; margin-top: 12px; }
@@ -381,6 +382,11 @@ const HTML_PAGE = `<!doctype html>
     <div class="room-layout">
       <div class="main-col">
         <div class="player-wrapper"><div id="yt-player"></div></div>
+
+        <div class="controls">
+          <button class="btn secondary" id="mute-btn">🔇 Unmute</button>
+          <span class="hint" style="margin:0;">Sound is personal to your device — muting/unmuting doesn't affect anyone else.</span>
+        </div>
 
         <div class="controls" id="playback-controls">
           <button class="btn" id="rewind-btn">⏪ 10s</button>
@@ -495,8 +501,20 @@ const HTML_PAGE = `<!doctype html>
     window.onYouTubeIframeAPIReady = function () {
       ytPlayer = new YT.Player('yt-player', {
         height: '100%', width: '100%',
-        playerVars: { playsinline: 1, rel: 0 },
-        events: { onReady: function () { ytReady = true; if (pendingVideoId) { ytPlayer.cueVideoById(pendingVideoId); pendingVideoId = null; } } }
+        // controls: 0 -> hide YouTube's own play/pause/seek bar so only the
+        //   Host/Moderator buttons (which broadcast to everyone) can drive playback.
+        // mute: 1 -> start muted so the browser allows autoplay when a sync_state
+        //   broadcast arrives without a fresh click from this viewer; they can
+        //   unmute locally at any time with the button below (personal, not synced).
+        playerVars: { playsinline: 1, rel: 0, controls: 0, disablekb: 1, mute: 1 },
+        events: {
+          onReady: function () {
+            ytReady = true;
+            ytPlayer.mute();
+            updateMuteButton();
+            if (pendingVideoId) { ytPlayer.cueVideoById(pendingVideoId); pendingVideoId = null; }
+          }
+        }
       });
     };
     (function loadYT() {
@@ -599,6 +617,9 @@ const HTML_PAGE = `<!doctype html>
       playbackControls.classList.toggle('hidden', !canControl);
       changeVideoControls.classList.toggle('hidden', !canControl);
       noControlHint.classList.toggle('hidden', canControl);
+      // extra safety: block clicks landing on the video itself for viewers,
+      // since controls:0 already hides YouTube's own play/pause/seek bar
+      document.querySelector('.player-wrapper').classList.toggle('locked', !canControl);
     }
 
     function enterRoom(roomId) {
@@ -658,6 +679,17 @@ const HTML_PAGE = `<!doctype html>
     };
 
     // ---- room screen actions ----
+    function updateMuteButton() {
+      var btn = document.getElementById('mute-btn');
+      if (!btn || !ytPlayer) return;
+      var muted = ytPlayer.isMuted();
+      btn.textContent = muted ? '🔇 Unmute' : '🔊 Mute';
+    }
+    document.getElementById('mute-btn').onclick = function () {
+      if (!ytPlayer) return;
+      if (ytPlayer.isMuted()) ytPlayer.unMute(); else ytPlayer.mute();
+      updateMuteButton();
+    };
     document.getElementById('play-btn').onclick = function () { socket.emit('play'); };
     document.getElementById('pause-btn').onclick = function () { socket.emit('pause', { currentTime: ytPlayer ? ytPlayer.getCurrentTime() : 0 }); };
     document.getElementById('rewind-btn').onclick = function () {
